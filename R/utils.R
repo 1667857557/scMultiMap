@@ -24,10 +24,12 @@ utils::globalVariables(c(".","seqnames", "start", "end", "strand", "gene_biotype
 get_top_peak_gene_pairs <- function(obj, gene_top=2000, peak_top=20000,
                                     distance = 5e+05,
                                     gene_assay = 'RNA', peak_assay = 'peak'){
+  gene_counts <- get_assay_counts(obj = obj, assay = gene_assay)
+  peak_counts <- get_assay_counts(obj = obj, assay = peak_assay)
   # focus on top genes
-  top_genes <- order(Matrix::rowSums(obj[[gene_assay]]$counts), decreasing = T)[1:gene_top]
+  top_genes <- order(Matrix::rowSums(gene_counts), decreasing = T)[1:gene_top]
   # and top peaks
-  top_peaks <- order(Matrix::rowSums(obj[[peak_assay]]$counts), decreasing = T)[1:peak_top]
+  top_peaks <- order(Matrix::rowSums(peak_counts), decreasing = T)[1:peak_top]
   # obtain gene locations
   # https://github.com/stuart-lab/signac/blob/HEAD/R/links.R#L281C1-L287C6
   annot <- Signac::Annotation(object = obj[[peak_assay]])
@@ -35,7 +37,7 @@ get_top_peak_gene_pairs <- function(obj, gene_top=2000, peak_top=20000,
     ranges = annot
   )
   peaks <- Signac::granges(x = obj[[peak_assay]])
-  gene_names <- rownames(obj[[gene_assay]]$counts)
+  gene_names <- rownames(gene_counts)
   gene_names_top <- gene_names[top_genes]
   # genes with high expression levels and known locations from genome annotation
   int_gene_names <- gene_names_top[gene_names_top %in% gene.coords$gene_name]
@@ -52,6 +54,35 @@ get_top_peak_gene_pairs <- function(obj, gene_top=2000, peak_top=20000,
   df <- data.frame(gene = colnames(peak_distance_matrix)[summ$j],
                    peak = rownames(peak_distance_matrix)[summ$i])
   return(df)
+}
+
+
+#' Obtain counts matrix from a Seurat assay
+#'
+#' @param obj A Seurat object
+#' @param assay Name of assay
+#'
+#' @return Matrix of counts
+get_assay_counts <- function(obj, assay) {
+  assay_obj <- obj[[assay]]
+
+  # Seurat Assay (v4) supports `$counts`
+  counts <- suppressWarnings(try(assay_obj$counts, silent = TRUE))
+  if (!inherits(counts, "try-error") && !is.null(counts)) {
+    return(counts)
+  }
+
+  # Some assay classes expose counts as an S4 slot
+  if ("counts" %in% methods::slotNames(assay_obj)) {
+    return(methods::slot(assay_obj, "counts"))
+  }
+
+  # Seurat v5 Assay5 stores matrices as layers
+  if (requireNamespace("SeuratObject", quietly = TRUE)) {
+    return(SeuratObject::LayerData(object = assay_obj, layer = "counts"))
+  }
+
+  stop(sprintf("Unable to access counts matrix for assay '%s'.", assay))
 }
 
 
